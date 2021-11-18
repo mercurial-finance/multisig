@@ -16,5 +16,7 @@ set -ex
     --from GR1LBT4cU89cJWE74CP6BsJTf2kriQ9TX59tbDsfxgSi \
     --to $2 \
     --multisig-address $MULTISIG_4_TREASURY \
-    --auth 9cBg3Ankxf4ijde8tjRKAGix5EGRbASnvigUA3JW8WSu
+    --auth 9cBg3Ankxf4ijde8tjRKAGix5EGRbASnvigUA3JW8WSu \
+    ${@: 3}
+
 
