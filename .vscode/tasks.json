@@ -7,7 +7,6 @@
             "type": "shell",
             "command": "cargo",
             "args": [
-                "+nightly",
                 "build"
             ],
             "problemMatcher": [
