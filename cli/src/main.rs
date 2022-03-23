@@ -33,7 +33,7 @@ mod spl_token_transfer;
 #[derive(Clap, Debug)]
 struct Opts {
     /// Address of the Multisig program.
-    #[clap(long, default_value = "H88LfRBiJLZ7wYkHGuwkKTaijfQxexq8JvzUndu7fyjL")]
+    #[clap(long, default_value = "msigmtwzgXJHj2ext4XJjCDmpbcMuufFb5cHuwg6Xdt")]
     multisig_program_id: InputPubkey,
 
     /// The keypair to sign and pay with. [default: ~/.config/solana/id.json]
@@ -41,7 +41,7 @@ struct Opts {
     keypair_path: InputKeypair,
 
     /// Cluster to connect to (mainnet, testnet, devnet, localnet, or url).
-    #[clap(long, default_value = "localnet")]
+    #[clap(long, default_value = "devnet")]
     cluster: Cluster,
 
     /// Output json instead of text to stdout.
@@ -71,6 +71,9 @@ enum SubCommand {
 
     /// Propose replacing a program with that in the given buffer account.
     ProposeUpgrade(ProposeUpgradeOpts),
+
+    /// Propose replacing a program with that in the given buffer account.
+    ProposeUpgradeAuthority(ProposeUpgradeAuthorityOpts),
 
     /// Propose replacing the set of owners or threshold of this multisig.
     ProposeChangeMultisig(ProposeChangeMultisigOpts),
@@ -148,6 +151,24 @@ struct ProposeUpgradeOpts {
     /// Account that will receive leftover funds from the buffer account.
     #[clap(long, default_value = "~/.config/solana/id.json")]
     spill_address: InputPubkey,
+
+    #[clap(long)]
+    transaction_account: Option<InputKeypair>,
+}
+
+#[derive(Clap, Debug)]
+struct ProposeUpgradeAuthorityOpts {
+    /// The multisig account whose owners should vote for this proposal.
+    #[clap(long)]
+    multisig_address: InputPubkey,
+
+    /// The program id of the program to upgrade.
+    #[clap(long)]
+    program_address: InputPubkey,
+
+    /// Account that will receive leftover funds from the buffer account.
+    #[clap(long)]
+    new_authority_address: InputPubkey,
 
     #[clap(long)]
     transaction_account: Option<InputKeypair>,
@@ -258,7 +279,8 @@ fn main() {
             print_output(opts.output_json, &output);
         }
         SubCommand::ProposeSplTokenTransfer(cmd_opts) => {
-            spl_token_transfer::propose_spl_token_transfer(program, cmd_opts);
+            let output = spl_token_transfer::propose_spl_token_transfer(program, cmd_opts);
+            print_output(opts.output_json, &output);
         }
         SubCommand::ProposeBinaryTransaction(cmd_opts) => {
             let output = propose_binary_transaction(program, cmd_opts);
@@ -266,6 +288,10 @@ fn main() {
         }
         SubCommand::ProposeUpgrade(cmd_opts) => {
             let output = propose_upgrade(program, cmd_opts);
+            print_output(opts.output_json, &output);
+        }
+        SubCommand::ProposeUpgradeAuthority(cmd_opts) => {
+            let output = propose_upgrade_authority(program, cmd_opts);
             print_output(opts.output_json, &output);
         }
         SubCommand::ProposeChangeMultisig(cmd_opts) => {
@@ -685,7 +711,7 @@ fn show_transaction(program: Program, opts: ShowTransactionOpts) -> ShowTransact
 }
 
 #[derive(Serialize)]
-struct ProposeInstructionOutput {
+pub struct ProposeInstructionOutput {
     transaction_address: PubkeyBase58,
 }
 
@@ -702,13 +728,10 @@ pub(crate) fn propose_instruction(
     transaction_account: Arc<Keypair>,
     instruction: Instruction,
 ) -> ProposeInstructionOutput {
-
-
     // get multisig_instance data
     let multisig_data: multisig::Multisig = program
         .account(multisig_address)
         .expect("Failed to read multisig state from account.");
-
 
     // The Multisig program expects `multisig::TransactionAccount` instead of
     // `solana_sdk::AccountMeta`. The types are structurally identical,
@@ -821,6 +844,30 @@ fn propose_upgrade(program: Program, opts: ProposeUpgradeOpts) -> ProposeInstruc
         // The upgrade authority is the multisig-derived program address.
         &program_derived_address,
         &opts.spill_address.as_pubkey(),
+    );
+
+    propose_instruction(
+        program,
+        opts.multisig_address.as_pubkey(),
+        opts.transaction_account
+            .as_ref()
+            .map_or_else(|| Arc::new(Keypair::new()), InputKeypair::as_keypair),
+        upgrade_instruction,
+    )
+}
+
+fn propose_upgrade_authority(
+    program: Program,
+    opts: ProposeUpgradeAuthorityOpts,
+) -> ProposeInstructionOutput {
+    let (program_derived_address, _nonce) =
+        get_multisig_program_address(&program, &opts.multisig_address.as_pubkey());
+
+    let upgrade_instruction = bpf_loader_upgradeable::set_upgrade_authority(
+        &opts.program_address.as_pubkey(),
+        &program_derived_address,
+        // The upgrade authority is the multisig-derived program address.
+        Some(&opts.new_authority_address.as_pubkey()),
     );
 
     propose_instruction(
